@@ -1,5 +1,6 @@
 """
-Entry point for training and testing IMU transformers for activity recognition
+IMU-TLcdegn\
+Entry point for training and testing IMU architectures for activity recognition with transfer learning
 """
 import argparse
 import torch
@@ -15,7 +16,7 @@ from sklearn.metrics import confusion_matrix
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("mode", help="train or test")
+    arg_parser.add_argument("mode", help="train, transfer or test")
     arg_parser.add_argument("architecture", help="imu-cnn, imu-transformer")
     arg_parser.add_argument("imu_dataset_file", help="path to a file mapping imu samples to labels")
     arg_parser.add_argument("config_file",
@@ -29,7 +30,7 @@ if __name__ == "__main__":
     utils.init_logger()
 
     # Record execution details
-    logging.info("Start {}ing a model for inertial-based activity recognition".format(args.mode))
+    logging.info("Start learning-based inertial-based activity recognition".format(args.mode))
     if args.experiment is not None:
         logging.info("Experiment details: {}".format(args.experiment))
     logging.info("Using imu dataset file: {}".format(args.imu_dataset_file))
@@ -58,22 +59,35 @@ if __name__ == "__main__":
     else:
         model = IMUTransformerEncoder(config).to(device)
 
-    # Load the checkpoint if needed
+    pretrained_state_dict = None
     if args.pretrained_path:
-        model.load_state_dict(torch.load(args.pretrained_path, map_location=device_id))
+        pretrained_state_dict = torch.load(args.pretrained_path, map_location=device_id)
+
+    mode = args.mode
+    if mode == 'transfer':
+        # Ensure fine-tuning given a pre-trained model
+        assert pretrained_state_dict is not None
+        # Remove keys from reference (for loading)
+        classifier_prefix = model.get_classifier_head_prefix()
+        keys_to_remove = [name for name in pretrained_state_dict.keys() if name.startswith(classifier_prefix)]
+        for key in keys_to_remove:
+            del pretrained_state_dict[key]
+
+        # Freeze if needed in the target
+        if args.finetune:
+            for name, parameter in model.named_parameters():
+                if not name.startswith(classifier_prefix):
+                    parameter.requires_grad_(False)
+                    print("Freezing param: [{}]".format(name))
+
+    # Load the model if available
+    if pretrained_state_dict is not None:
+        model.load_state_dict(pretrained_state_dict, strict=False)
         logging.info("Initializing from checkpoint: {}".format(args.pretrained_path))
 
-    if args.finetune:
-        # Ensure fine-tuning given a pre-trained model
-        assert args.pretrained_path is not None
-        non_freeze_prefix = model.get_classifier_head_prefix()
-        for name, parameter in model.named_parameters():
-            if not name.startswith(non_freeze_prefix):
-                parameter.requires_grad_(False)
-                print("Freezing param: [{}]".format(name))
 
-
-    if args.mode == 'train':
+    logging.info("Start {}ing".format(mode))
+    if mode == 'train':
         # Set to train mode
         model.train()
 
