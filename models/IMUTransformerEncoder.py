@@ -43,9 +43,9 @@ class IMUTransformerEncoder(nn.Module):
             nn.LayerNorm(self.transformer_dim),
             nn.Linear(self.transformer_dim,  self.transformer_dim//4),
             nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(self.transformer_dim//4,  num_classes)
+            nn.Dropout(0.1)
         )
+        self.classifier = nn.Linear(self.transformer_dim//4,  num_classes)
         self.log_softmax = nn.LogSoftmax(dim=1)
 
         # init
@@ -54,7 +54,7 @@ class IMUTransformerEncoder(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def get_classifier_head_prefix(self):
-        return "imu_head"
+        return "classifier"
 
     def forward(self, data):
         src = data.get('imu')  # Shape N x S x C with S = sequence length, N = batch size, C = channels
@@ -74,7 +74,8 @@ class IMUTransformerEncoder(nn.Module):
         target = self.transformer_encoder(src)[0]
 
         # Class probability
-        target = self.log_softmax(self.imu_head(target))
+        target = self.imu_head(target)
+        target = self.log_softmax(self.classifier(target))
         return target
 
 def get_activation(activation):
